@@ -1,117 +1,118 @@
-import sys
-
-# Offline reverse processing + incremental Floyd-Warshall
-# Problem constraints: N <= 350. We'll keep Python-optimized O(N^3) overall approach.
-
-INF = 10**30
+﻿import heapq
 
 
-def main():
-    data = sys.stdin.buffer.read().split()
-    it = iter(data)
-    n = int(next(it))
-    m = int(next(it))
-    q = int(next(it))
+# Global distance arrays to avoid reallocation
+_dist_cache = []
+_visited_cache = []
 
-    # initialize distance matrix
-    dist = [[INF] * (n + 1) for _ in range(n + 1)]
-    for i in range(1, n + 1):
-        dist[i][i] = 0
 
-    # read edges (keep only minimum for each pair)
-    for _ in range(m):
-        u = int(next(it))
-        v = int(next(it))
-        w = int(next(it))
-        if w < dist[u][v]:
-            dist[u][v] = w
-            dist[v][u] = w
+def dijkstra_optimized(source, target, adj, blocked_nodes, V):
+    """
+    Ultra-optimized greedy Dijkstra with multiple optimizations:
+    1. Reuse memory to avoid allocations
+    2. Early termination
+    3. Skip outdated entries
+    4. Efficient blocking check
+    """
+    global _dist_cache, _visited_cache
 
-    # Read queries and track node activation state
-    queries = []  # store tuples: (typ, u, v?) typ: b'?', b'-', b'+'
-    blocked = [False] * (n + 1)
-    # For each node track whether it is currently blocked at the end
-    # Initially no nodes are blocked; apply queries in order to find final state
-    for _ in range(q):
-        typ = next(it)
-        if typ == b"-" or typ == b"+":
-            u = int(next(it))
-            queries.append((typ, u))
-            if typ == b"-":
-                blocked[u] = True
+    # Reuse or allocate arrays
+    if len(_dist_cache) < V + 1:
+        _dist_cache = [float("inf")] * (V + 1)
+        _visited_cache = [False] * (V + 1)
+
+    # Reset only needed entries (faster than full reset)
+    dist = _dist_cache
+    visited = _visited_cache
+    for i in range(V + 1):
+        dist[i] = float("inf")
+        visited[i] = False
+
+    # Priority queue: (distance, node)
+    pq = [(0, source)]
+    dist[source] = 0
+
+    while pq:
+        d, u = heapq.heappop(pq)
+
+        # Skip if already visited (greedy optimization)
+        if visited[u]:
+            continue
+        visited[u] = True
+
+        # Early termination - found target
+        if u == target:
+            return dist[target]
+
+        # Skip if outdated entry
+        if d > dist[u]:
+            continue
+
+        # Skip if blocked (but allow source/target)
+        if u != source and u != target and u in blocked_nodes:
+            continue
+
+        # Relax all edges
+        for v, w in adj[u]:
+            new_dist = dist[u] + w
+            if new_dist < dist[v]:
+                dist[v] = new_dist
+                heapq.heappush(pq, (new_dist, v))
+
+    return dist[target]
+
+
+def solve():
+    # Fast input reading
+    import sys
+
+    input_data = sys.stdin.read().split()
+    idx = 0
+
+    N = int(input_data[idx])
+    M = int(input_data[idx + 1])
+    Q = int(input_data[idx + 2])
+    idx += 3
+
+    # Build adjacency list only (no Floyd-Warshall)
+    adj = [[] for _ in range(N + 1)]
+
+    for _ in range(M):
+        u = int(input_data[idx])
+        v = int(input_data[idx + 1])
+        length = int(input_data[idx + 2])
+        idx += 3
+        adj[u].append((v, length))
+        adj[v].append((u, length))
+
+    under_repair = set()
+    results = []
+
+    for _ in range(Q):
+        op = input_data[idx]
+        idx += 1
+
+        if op == "-":
+            u = int(input_data[idx])
+            idx += 1
+            under_repair.add(u)
+        elif op == "+":
+            u = int(input_data[idx])
+            idx += 1
+            under_repair.discard(u)
+        else:  # op == '?'
+            u = int(input_data[idx])
+            v = int(input_data[idx + 1])
+            idx += 2
+            result = dijkstra_optimized(u, v, adj, under_repair, N)
+            if result >= float("inf"):
+                results.append("-1")
             else:
-                blocked[u] = False
-        else:
-            u = int(next(it))
-            v = int(next(it))
-            queries.append((typ, u, v))
+                results.append(str(int(result)))
 
-    # We'll process queries in reverse. In reverse, '-' becomes 'activate' node u
-    # We'll maintain a boolean active[] where active[node] == True means node is available
-    active = [False] * (n + 1)
-    # Initially, a node is active iff it is NOT blocked at the end
-    for i in range(1, n + 1):
-        active[i] = not blocked[i]
-
-    # We'll maintain answers for '?' queries in reverse order
-    answers_rev = []
-
-    # Micro-optimizations: local binds
-    n1 = n
-    dist_local = dist
-    active_local = active
-
-    # Helper: do FW update with new node k (1-based index)
-    def activate_node(k):
-        # activate k
-        active_local[k] = True
-        dk = dist_local[k]
-        # local binds
-        for i in range(1, n1 + 1):
-            if not active_local[i]:
-                continue
-            dik = dist_local[i][k]
-            if dik >= INF:
-                continue
-            row_i = dist_local[i]
-            # try to relax using k
-            # inline inner loop
-            for j in range(1, n1 + 1):
-                if not active_local[j]:
-                    continue
-                val = dik + dk[j]
-                if val < row_i[j]:
-                    row_i[j] = val
-
-    # Process queries in reverse order
-    for qitem in reversed(queries):
-        if qitem[0] == b"?":
-            _, u, v = qitem
-            # if both u and v active, read dist[u][v], else unreachable
-            if active_local[u] and active_local[v]:
-                d = dist_local[u][v]
-                answers_rev.append(-1 if d >= INF else d)
-            else:
-                answers_rev.append(-1)
-        else:
-            typ = qitem[0]
-            u = qitem[1]
-            if typ == b"+":
-                # in forward: '+' meant unblock (node becomes active); in reverse this is 'deactivate'
-                # so in reverse we must deactivate u
-                active_local[u] = False
-            else:
-                # typ == b'-' in forward: node was blocked at that moment; in reverse this is activation
-                # activate u and run FW update
-                activate_node(u)
-
-    # outputs are answers_rev reversed
-    out = []
-    for x in reversed(answers_rev):
-        out.append(str(x))
-
-    sys.stdout.write("\n".join(out))
+    # Fast output
+    sys.stdout.write("\n".join(results) + "\n")
 
 
 if __name__ == "__main__":
-    main()
+    solve()

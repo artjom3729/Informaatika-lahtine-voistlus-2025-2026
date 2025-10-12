@@ -1,149 +1,131 @@
-from collections import defaultdict
 import sys
-
-
-class Fenwick:
-    def __init__(self, n):
-        self.n = n
-        self.bit = [0] * (n + 1)
-
-    def add(self, i, delta):
-        i += 1
-        while i <= self.n:
-            self.bit[i] += delta
-            i += i & -i
-
-    def sum(self, i):
-        i += 1
-        res = 0
-        while i > 0:
-            res += self.bit[i]
-            i -= i & -i
-        return res
-
-    def range_sum(self, left, right):
-        if right < left:
-            return 0
-        if left > 0:
-            return self.sum(right) - self.sum(left - 1)
-        return self.sum(right)
-
-
-def full_lehmer_decode(wagons, m, n):
-    counts = defaultdict(int)
-    for val in wagons:
-        counts[val] += 1
-    canon = []
-    for val in sorted(counts.keys()):
-        for i in range(counts[val]):
-            canon.append((val, i))
-    canon_pos = {pair: pos for pos, pair in enumerate(canon)}
-    occ = defaultdict(int)
-    perm_ids = []
-    for val in wagons:
-        tie = occ[val]
-        occ[val] += 1
-        perm_ids.append(canon_pos[(val, tie)])
-
-    fenw = Fenwick(n)
-    for i in range(n):
-        fenw.add(i, 1)
-
-    lehmer = [0] * n
-    for i in range(n):
-        x = perm_ids[i]
-        smaller = fenw.range_sum(0, x - 1)
-        lehmer[i] = smaller
-        fenw.add(x, -1)
-
-    perm_index_mod = 0
-    for i in range(n):
-        perm_index_mod = (perm_index_mod * (n - i) + lehmer[i]) % m
-    return perm_index_mod
-
+import math
+from collections import defaultdict
 
 def main():
     mode = sys.stdin.readline().strip()
-
-    if mode == "ENC":
-        m, n = [int(x) for x in sys.stdin.readline().split()]
-        v = [int(x) for x in sys.stdin.readline().split()]
-
-        distinct_sorted = sorted(set(v))
-        can_map = len(distinct_sorted) >= m
-        if can_map:
-            map_vals = distinct_sorted[:m]
-        else:
-            map_vals = []
-
-        positions = defaultdict(list)
-        for idx, val in enumerate(v):
-            positions[val].append(idx)
-
+    
+    if mode == 'ENC':
+        # Read M, N
+        data = sys.stdin.readline().split()
+        M = int(data[0])
+        N = int(data[1])
+        wagons = list(map(int, sys.stdin.readline().split()))
+        
+        # Calculate minimal k such that k! >= M
+        k = 0
+        fact = 1
+        while fact < M and k < N:
+            k += 1
+            fact *= k
+        
+        # If k == 0, we need at least 1 wagon
+        if k == 0:
+            k = 1
+        
+        # Get k smallest distinct values
+        distinct_values = sorted(set(wagons))[:k]
+        
+        # Create mapping from values to available wagons
+        value_to_count = defaultdict(int)
+        for wagon in wagons:
+            value_to_count[wagon] += 1
+        
+        # Build the selected wagons (one per distinct value)
+        selected_wagons = []
+        remaining_wagons = []
+        
+        # First, add one of each distinct value
+        for val in distinct_values:
+            selected_wagons.append(val)
+            value_to_count[val] -= 1
+        
+        # Then add all remaining wagons
+        for val, count in value_to_count.items():
+            for _ in range(count):
+                remaining_wagons.append(val)
+        
+        # Precompute factorials
+        facts = [1] * (k + 1)
+        for i in range(1, k + 1):
+            facts[i] = facts[i-1] * i
+        
+        # Process each S
         while True:
-            line = sys.stdin.readline()
+            line = sys.stdin.readline().strip()
             if not line:
                 break
-            s = int(line)
-            if s == -1:
+            
+            S = int(line)
+            if S == -1:
                 break
-
-            if can_map and 0 <= s < m:
-                target = map_vals[s]
-                first_idx = positions[target][0]
-                out = [v[first_idx]]
-                for i in range(n):
-                    if i == first_idx:
-                        continue
-                    out.append(v[i])
-                print(*out, flush=True)
-            else:
-                print(*v, flush=True)
-
-    elif mode == "DEC":
-        m, n = [int(x) for x in sys.stdin.readline().split()]
-
-        learned = False
-        val_to_s = None
-
+            
+            # Encode S as permutation of selected wagons
+            available = distinct_values[:]
+            encoded = []
+            temp_S = S
+            
+            for i in range(k):
+                fact_val = facts[k - 1 - i]
+                idx = temp_S // fact_val
+                temp_S %= fact_val
+                encoded.append(available.pop(idx))
+            
+            # Build the full output
+            result = encoded + remaining_wagons
+            print(' '.join(map(str, result)), flush=True)
+    
+    elif mode == 'DEC':
+        # Read M, N
+        data = sys.stdin.readline().split()
+        M = int(data[0])
+        N = int(data[1])
+        
+        # Calculate the same k as encoder
+        k = 0
+        fact = 1
+        while fact < M and k < N:
+            k += 1
+            fact *= k
+        
+        if k == 0:
+            k = 1
+        
+        # Precompute factorials
+        facts = [1] * (k + 1)
+        for i in range(1, k + 1):
+            facts[i] = facts[i-1] * i
+        
+        # Process trains
         while True:
-            print("R", flush=True)
-            line = sys.stdin.readline()
-            if not line:
-                break
-            first = int(line)
-            if first == -1:
-                break
+            # Read first k wagons
+            first_k = []
+            for _ in range(k):
+                print('R', flush=True)
+                line = sys.stdin.readline().strip()
+                if not line:
+                    return
+                
+                wagon = int(line)
+                if wagon == -1:
+                    return
+                first_k.append(wagon)
+            
+            # Get distinct values from first k wagons
+            distinct_values = sorted(set(first_k))
+            
+            # Decode the permutation
+            available = distinct_values[:]
+            S = 0
+            
+            for i in range(k):
+                fact_val = facts[k - 1 - i]
+                val = first_k[i]
+                idx = available.index(val)
+                S += idx * fact_val
+                available.pop(idx)
+            
+            print(S, flush=True)
 
-            if not learned:
-                wagons = [first]
-                for _ in range(n - 1):
-                    print("R", flush=True)
-                    wagons.append(int(sys.stdin.readline()))
-                distinct_sorted = sorted(set(wagons))
-                if len(distinct_sorted) >= m:
-                    map_vals = distinct_sorted[:m]
-                    val_to_s = {map_vals[i]: i for i in range(m)}
-                else:
-                    val_to_s = None
-                learned = True
-                if val_to_s and wagons[0] in val_to_s:
-                    print(val_to_s[wagons[0]], flush=True)
-                else:
-                    print(full_lehmer_decode(wagons, m, n), flush=True)
-            else:
-                if val_to_s and first in val_to_s:
-                    print(val_to_s[first], flush=True)
-                else:
-                    wagons = [first]
-                    for _ in range(n - 1):
-                        print("R", flush=True)
-                        wagons.append(int(sys.stdin.readline()))
-                    print(full_lehmer_decode(wagons, m, n), flush=True)
-
-    else:
-        pass
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
